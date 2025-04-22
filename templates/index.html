@@ -1,0 +1,421 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图像数据提取工具</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .canvas-container {
+            position: relative;
+            margin: 20px 0;
+            border: 1px solid #ccc;
+            overflow: hidden;
+        }
+        canvas {
+            cursor: crosshair;
+        }
+        .point-marker {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+        .p0-marker { background-color: red; }
+        .p1-marker { background-color: blue; }
+        .p2-marker { background-color: green; }
+        .point-label {
+            position: absolute;
+            background: rgba(255,255,255,0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            transform: translate(-50%, -100%);
+            margin-top: -5px;
+            z-index: 11;
+        }
+        .step {
+            display: none;
+            margin-bottom: 30px;
+        }
+        .step.active {
+            display: block;
+        }
+        #preview-container img {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container my-5">
+        <h1 class="text-center mb-4">图像数据提取工具</h1>
+
+        <div class="step active" id="step1">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3>第一步：上传图像</h3>
+                </div>
+                <div class="card-body">
+                    <p class="mb-3">请选择要处理的图像文件：</p>
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="imageInput" accept="image/*">
+                    </div>
+                    <div class="d-flex justify-content-end">
+                        <button class="btn btn-primary" id="uploadBtn">上传图像</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="step" id="step2">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3>第二步：设置参考点</h3>
+                </div>
+                <div class="card-body">
+                    <p class="mb-3">请在图像上点击设置三个参考点：</p>
+                    <ul>
+                        <li>P0（红色）：绘图区左下角 → 数据 (t_start, y_min)</li>
+                        <li>P1（蓝色）：绘图区左上角 → 数据 (t_start, y_max)</li>
+                        <li>P2（绿色）：绘图区右下角 → 数据 (t_end, y_min)</li>
+                    </ul>
+
+                    <div class="canvas-container">
+                        <canvas id="imageCanvas"></canvas>
+                        <div class="point-marker p0-marker" id="p0-marker" style="display: none;"></div>
+                        <div class="point-marker p1-marker" id="p1-marker" style="display: none;"></div>
+                        <div class="point-marker p2-marker" id="p2-marker" style="display: none;"></div>
+                        <div class="point-label" id="p0-label" style="display: none;">P0</div>
+                        <div class="point-label" id="p1-label" style="display: none;">P1</div>
+                        <div class="point-label" id="p2-label" style="display: none;">P2</div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">P0 坐标：</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="p0x" placeholder="X">
+                                <input type="number" class="form-control" id="p0y" placeholder="Y">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">P1 坐标：</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="p1x" placeholder="X">
+                                <input type="number" class="form-control" id="p1y" placeholder="Y">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">P2 坐标：</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="p2x" placeholder="X">
+                                <input type="number" class="form-control" id="p2y" placeholder="Y">
+                            </div>
+                        </div>
+                    </div>
+
+                    <h4 class="mt-4">数据轴参数设置</h4>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">功率轴范围：</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="y_min" placeholder="最小值" value="0">
+                                <input type="number" class="form-control" id="y_max" placeholder="最大值" value="25000">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">开始时间：</label>
+                            <input type="datetime-local" class="form-control" id="t_start">
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">结束时间：</label>
+                            <input type="datetime-local" class="form-control" id="t_end">
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <button class="btn btn-secondary" id="backToStep1">返回上一步</button>
+                        <button class="btn btn-primary" id="processBtn">处理图像</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="step" id="step3">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3>第三步：查看结果</h3>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-success" id="resultInfo"></div>
+
+                    <h4>提取曲线预览</h4>
+                    <div id="preview-container" class="text-center mb-4"></div>
+
+                    <div class="d-flex justify-content-between">
+                        <button class="btn btn-secondary" id="backToStep2">返回上一步</button>
+                        <button class="btn btn-success" id="downloadBtn">下载Excel文件</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 全局变量
+        let sessionId = null;
+        let canvas = document.getElementById('imageCanvas');
+        let ctx = canvas.getContext('2d');
+        let originalImage = new Image();
+        let points = {
+            p0: null,
+            p1: null,
+            p2: null
+        };
+
+        // 事件处理函数
+        document.getElementById('uploadBtn').addEventListener('click', uploadImage);
+        document.getElementById('backToStep1').addEventListener('click', () => switchStep(1));
+        document.getElementById('backToStep2').addEventListener('click', () => switchStep(2));
+        document.getElementById('processBtn').addEventListener('click', processImage);
+        document.getElementById('downloadBtn').addEventListener('click', downloadExcel);
+        canvas.addEventListener('click', handleCanvasClick);
+
+        // 坐标输入框监听
+        document.getElementById('p0x').addEventListener('change', updatePointFromInput);
+        document.getElementById('p0y').addEventListener('change', updatePointFromInput);
+        document.getElementById('p1x').addEventListener('change', updatePointFromInput);
+        document.getElementById('p1y').addEventListener('change', updatePointFromInput);
+        document.getElementById('p2x').addEventListener('change', updatePointFromInput);
+        document.getElementById('p2y').addEventListener('change', updatePointFromInput);
+
+        // 初始化当前日期时间
+        const now = new Date();
+        const nextWeek = new Date(now);
+        nextWeek.setDate(now.getDate() + 7);
+
+        document.getElementById('t_start').value = formatDateTime(now);
+        document.getElementById('t_end').value = formatDateTime(nextWeek);
+
+        // 设置当前步骤
+        function switchStep(stepNum) {
+            document.querySelectorAll('.step').forEach(step => {
+                step.classList.remove('active');
+            });
+            document.getElementById(`step${stepNum}`).classList.add('active');
+        }
+
+        // 格式化日期时间
+        function formatDateTime(date) {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        }
+
+        // 上传图像
+        function uploadImage() {
+            const fileInput = document.getElementById('imageInput');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('请选择一个图像文件');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(`错误: ${data.error}`);
+                    return;
+                }
+
+                sessionId = data.session_id;
+                originalImage.src = `data:image/png;base64,${data.image}`;
+                originalImage.onload = function() {
+                    canvas.width = originalImage.width;
+                    canvas.height = originalImage.height;
+                    ctx.drawImage(originalImage, 0, 0);
+
+                    // 重置点位置
+                    points = { p0: null, p1: null, p2: null };
+                    updatePointMarkers();
+
+                    switchStep(2);
+                };
+            })
+            .catch(error => {
+                alert(`上传失败: ${error}`);
+            });
+        }
+
+        // 处理画布点击
+        function handleCanvasClick(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round(event.clientX - rect.left);
+            const y = Math.round(event.clientY - rect.top);
+
+            // 确定要设置哪个点
+            let pointKey;
+            if (points.p0 === null) {
+                pointKey = 'p0';
+            } else if (points.p1 === null) {
+                pointKey = 'p1';
+            } else if (points.p2 === null) {
+                pointKey = 'p2';
+            } else {
+                // 如果所有点都已设置，则根据最近的点进行更新
+                const distances = {
+                    p0: Math.hypot(x - points.p0.x, y - points.p0.y),
+                    p1: Math.hypot(x - points.p1.x, y - points.p1.y),
+                    p2: Math.hypot(x - points.p2.x, y - points.p2.y)
+                };
+
+                pointKey = Object.keys(distances).reduce((a, b) => distances[a] < distances[b] ? a : b);
+            }
+
+            // 设置点坐标
+            points[pointKey] = { x, y };
+            document.getElementById(`${pointKey}x`).value = x;
+            document.getElementById(`${pointKey}y`).value = y;
+
+            updatePointMarkers();
+        }
+
+        // 从输入框更新点位置
+        function updatePointFromInput() {
+            const id = this.id;
+            const pointKey = id.substr(0, 2);
+            const coord = id.substr(2);
+
+            if (!points[pointKey]) {
+                points[pointKey] = { x: 0, y: 0 };
+            }
+
+            points[pointKey][coord] = parseInt(this.value) || 0;
+            updatePointMarkers();
+        }
+
+        // 更新点标记位置
+        function updatePointMarkers() {
+            Object.keys(points).forEach(key => {
+                const point = points[key];
+                if (point) {
+                    const marker = document.getElementById(`${key}-marker`);
+                    const label = document.getElementById(`${key}-label`);
+
+                    marker.style.display = 'block';
+                    label.style.display = 'block';
+
+                    marker.style.left = `${point.x}px`;
+                    marker.style.top = `${point.y}px`;
+
+                    label.style.left = `${point.x}px`;
+                    label.style.top = `${point.y}px`;
+                }
+            });
+        }
+
+        // 处理图像
+        function processImage() {
+            // 检查是否所有点都已设置
+            if (!points.p0 || !points.p1 || !points.p2) {
+                alert('请先设置所有参考点');
+                return;
+            }
+
+            // 获取参数
+            const params = {
+                session_id: sessionId,
+                p0_x: points.p0.x,
+                p0_y: points.p0.y,
+                p1_x: points.p1.x,
+                p1_y: points.p1.y,
+                p2_x: points.p2.x,
+                p2_y: points.p2.y,
+                y_min: parseInt(document.getElementById('y_min').value) || 0,
+                y_max: parseInt(document.getElementById('y_max').value) || 25000,
+                t_start: document.getElementById('t_start').value,
+                t_end: document.getElementById('t_end').value
+            };
+
+            fetch('/process', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(params)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(`处理错误: ${data.error}`);
+                    return;
+                }
+
+                document.getElementById('resultInfo').textContent = `成功提取曲线数据，共 ${data.points} 个采样点`;
+                document.getElementById('preview-container').innerHTML = `<img src="data:image/png;base64,${data.preview}" alt="提取曲线预览">`;
+
+                switchStep(3);
+            })
+            .catch(error => {
+                alert(`处理失败: ${error}`);
+            });
+        }
+
+        // 下载Excel文件
+        function downloadExcel() {
+            // 添加日志以检查会话ID
+            console.log("下载文件，会话ID:", sessionId);
+
+            if (!sessionId) {
+                alert("错误：无法下载文件，会话ID丢失");
+                return;
+            }
+
+            // 直接打开新窗口下载
+            const downloadUrl = `/download?session_id=${sessionId}`;
+            window.open(downloadUrl, '_blank');
+
+            // 不要立即清理会话，等待用户确认下载完成
+            /*
+            setTimeout(() => {
+                fetch('/cleanup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+            }, 3000);
+            */
+        }
+
+        // 页面关闭或刷新时清理会话
+        window.addEventListener('beforeunload', function() {
+            if (sessionId) {
+                fetch('/cleanup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ session_id: sessionId }),
+                    keepalive: true
+                });
+            }
+        });
+    </script>
+</body>
+</html>
