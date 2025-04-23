@@ -285,27 +285,27 @@ def cleanup():
     return jsonify({'status': 'success'})
 
 
-@app.route('/debug/sessions', methods=['GET'])
-def debug_sessions():
-    # 获取所有会话文件
-    session_files = [f for f in os.listdir(app.config['SESSIONS_FOLDER']) if f.endswith('.pkl')]
-    sessions_info = {}
-
-    for session_file in session_files:
-        session_id = session_file[:-4]  # 移除 .pkl 后缀
-        try:
-            session_data = load_session(session_id)
-            sessions_info[session_id] = {
-                'has_data': 'xs' in session_data and 'ys' in session_data,
-                'filename': session_data.get('filename', 'unknown')
-            }
-        except:
-            sessions_info[session_id] = {'error': 'Failed to load session data'}
-
-    return jsonify({
-        'session_count': len(session_files),
-        'sessions': sessions_info
-    })
+# @app.route('/debug/sessions', methods=['GET'])
+# def debug_sessions():
+#     # 获取所有会话文件
+#     session_files = [f for f in os.listdir(app.config['SESSIONS_FOLDER']) if f.endswith('.pkl')]
+#     sessions_info = {}
+#
+#     for session_file in session_files:
+#         session_id = session_file[:-4]  # 移除 .pkl 后缀
+#         try:
+#             session_data = load_session(session_id)
+#             sessions_info[session_id] = {
+#                 'has_data': 'xs' in session_data and 'ys' in session_data,
+#                 'filename': session_data.get('filename', 'unknown')
+#             }
+#         except:
+#             sessions_info[session_id] = {'error': 'Failed to load session data'}
+#
+#     return jsonify({
+#         'session_count': len(session_files),
+#         'sessions': sessions_info
+#     })
 
 
 # 定时清理过期会话的函数
