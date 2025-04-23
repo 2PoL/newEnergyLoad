@@ -1,32 +1,7 @@
 # app.py
 import matplotlib
+
 matplotlib.use('Agg')  # 设置非交互式后端，必须在导入pyplot之前
-
-# 设置中文字体支持
-from matplotlib import font_manager as fm
-import platform
-
-# 根据不同操作系统设置合适的中文字体
-system = platform.system()
-if system == 'Windows':
-    # Windows 常见中文字体选择
-    chinese_fonts = ['Microsoft YaHei', 'SimHei', 'SimSun', 'Arial Unicode MS']
-    for font_name in chinese_fonts:
-        try:
-            # 尝试设置字体
-            matplotlib.rcParams['font.sans-serif'] = [font_name]
-            matplotlib.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-            break
-        except:
-            continue
-elif system == 'Darwin':  # macOS
-    matplotlib.rcParams['font.sans-serif'] = ['PingFang SC', 'Heiti SC', 'Arial Unicode MS']
-    matplotlib.rcParams['axes.unicode_minus'] = False
-else:  # Linux
-    matplotlib.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'DejaVu Sans', 'Droid Sans Fallback']
-    matplotlib.rcParams['axes.unicode_minus'] = False
-
-# 然后再导入其他模块
 from flask import Flask, request, render_template, send_file, jsonify, redirect, url_for
 import cv2
 import numpy as np
@@ -35,22 +10,49 @@ from datetime import datetime
 import os
 import io
 import base64
-import matplotlib.pyplot as plt  # 现在导入pyplot
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import uuid
 import shutil
+import json
+import pickle
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['RESULTS_FOLDER'] = 'results'
+app.config['SESSIONS_FOLDER'] = 'sessions'  # 新增会话存储文件夹
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
 
-# 确保上传和结果目录存在
+# 确保所有必要的目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['RESULTS_FOLDER'], exist_ok=True)
+os.makedirs(app.config['SESSIONS_FOLDER'], exist_ok=True)
 
-# 存储用户上传的图像和处理参数
-sessions = {}
+
+# 会话管理函数
+def save_session(session_id, data):
+    """保存会话数据到文件"""
+    # 对于包含numpy数组和pandas时间戳的数据，使用pickle保存
+    session_file = os.path.join(app.config['SESSIONS_FOLDER'], f"{session_id}.pkl")
+    with open(session_file, 'wb') as f:
+        pickle.dump(data, f)
+
+
+def load_session(session_id):
+    """从文件加载会话数据"""
+    session_file = os.path.join(app.config['SESSIONS_FOLDER'], f"{session_id}.pkl")
+    if not os.path.exists(session_file):
+        return None
+
+    with open(session_file, 'rb') as f:
+        return pickle.load(f)
+
+
+def delete_session(session_id):
+    """删除会话文件"""
+    session_file = os.path.join(app.config['SESSIONS_FOLDER'], f"{session_id}.pkl")
+    if os.path.exists(session_file):
+        os.remove(session_file)
 
 
 @app.route('/')
@@ -75,11 +77,12 @@ def upload_file():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{file.filename}")
         file.save(file_path)
 
-        # 存储会话信息
-        sessions[session_id] = {
+        # 创建并保存会话信息
+        session_data = {
             'image_path': file_path,
             'filename': file.filename
         }
+        save_session(session_id, session_data)
 
         # 读取图像并转换为base64以在前端显示
         img = cv2.imread(file_path)
@@ -105,7 +108,9 @@ def process_image():
     data = request.json
     session_id = data.get('session_id')
 
-    if session_id not in sessions:
+    # 加载会话数据
+    session_data = load_session(session_id)
+    if session_data is None:
         return jsonify({'error': 'Invalid session'}), 400
 
     try:
@@ -118,8 +123,8 @@ def process_image():
         t_start = pd.Timestamp(data.get('t_start'))
         t_end = pd.Timestamp(data.get('t_end'))
 
-        # 存储参数
-        sessions[session_id].update({
+        # 更新会话数据
+        session_data.update({
             'p0': p0,
             'p1': p1,
             'p2': p2,
@@ -130,7 +135,7 @@ def process_image():
         })
 
         # 处理图像
-        image_path = sessions[session_id]['image_path']
+        image_path = session_data['image_path']
         img_bgr = cv2.imread(image_path)
         if img_bgr is None:
             return jsonify({'error': 'Failed to read image'}), 400
@@ -171,18 +176,21 @@ def process_image():
             xs.append(t_val)
             ys.append(y_val)
 
-        # 存储结果数据
-        sessions[session_id]['xs'] = xs
-        sessions[session_id]['ys'] = ys
+        # 更新结果数据
+        session_data['xs'] = xs
+        session_data['ys'] = ys
+
+        # 保存更新后的会话数据
+        save_session(session_id, session_data)
 
         # 生成预览图
         fig, ax = plt.figure(figsize=(10, 6)), plt.gca()
         ax.plot(xs, ys, 'g-')
-        ax.set_title('提取曲线预览', fontsize=14)  # 中文标题
-        ax.set_xlabel('时间', fontsize=12)  # 中文标签
-        ax.set_ylabel('功率 (KW)', fontsize=12)  # 中文标签
+        ax.set_title('Curve Preview', fontsize=14)
+        ax.set_xlabel('Time', fontsize=12)
+        ax.set_ylabel('Power (KW)', fontsize=12)
         ax.grid(True)
-        plt.tight_layout()  # 调整布局以确保中文标题不被剪切
+        plt.tight_layout()
 
         # 将图表转换为base64
         canvas = FigureCanvas(fig)
@@ -209,13 +217,12 @@ def download_excel():
     if not session_id:
         return jsonify({'error': 'No session ID provided'}), 400
 
-    if session_id not in sessions:
+    # 加载会话数据
+    session_data = load_session(session_id)
+    if session_data is None:
         return jsonify({'error': f'Invalid session: {session_id}'}), 400
 
     try:
-        # 获取会话数据
-        session_data = sessions[session_id]
-
         # 检查必要的数据是否存在
         if 'xs' not in session_data or 'ys' not in session_data:
             return jsonify({'error': 'Session data is incomplete'}), 400
@@ -258,42 +265,77 @@ def download_excel():
 def cleanup():
     session_id = request.json.get('session_id')
 
-    if session_id in sessions:
+    # 加载会话数据
+    session_data = load_session(session_id)
+    if session_data:
         # 删除会话文件
         try:
-            os.remove(sessions[session_id]['image_path'])
+            if 'image_path' in session_data and os.path.exists(session_data['image_path']):
+                os.remove(session_data['image_path'])
+
             excel_path = os.path.join(app.config['RESULTS_FOLDER'], f'拟合数据_{session_id}.xlsx')
             if os.path.exists(excel_path):
                 os.remove(excel_path)
-        except:
-            pass
 
-        # 删除会话数据
-        del sessions[session_id]
+            # 删除会话数据文件
+            delete_session(session_id)
+        except Exception as e:
+            print(f"Error during cleanup: {str(e)}")
 
     return jsonify({'status': 'success'})
 
 
-# 定时清理过期会话的函数（在实际部署中可以使用定时任务）
-def cleanup_expired_sessions():
-    # 简单示例，实际应用可能需要更复杂的过期逻辑
-    for session_id in list(sessions.keys()):
-        try:
-            os.remove(sessions[session_id]['image_path'])
-            excel_path = os.path.join(app.config['RESULTS_FOLDER'], f'拟合数据_{session_id}.xlsx')
-            if os.path.exists(excel_path):
-                os.remove(excel_path)
-            del sessions[session_id]
-        except:
-            pass
-
 @app.route('/debug/sessions', methods=['GET'])
 def debug_sessions():
-    # 仅用于调试，生产环境应移除
+    # 获取所有会话文件
+    session_files = [f for f in os.listdir(app.config['SESSIONS_FOLDER']) if f.endswith('.pkl')]
+    sessions_info = {}
+
+    for session_file in session_files:
+        session_id = session_file[:-4]  # 移除 .pkl 后缀
+        try:
+            session_data = load_session(session_id)
+            sessions_info[session_id] = {
+                'has_data': 'xs' in session_data and 'ys' in session_data,
+                'filename': session_data.get('filename', 'unknown')
+            }
+        except:
+            sessions_info[session_id] = {'error': 'Failed to load session data'}
+
     return jsonify({
-        'session_count': len(sessions),
-        'sessions': {k: {'has_data': 'xs' in v and 'ys' in v} for k, v in sessions.items()}
+        'session_count': len(session_files),
+        'sessions': sessions_info
     })
+
+
+# 定时清理过期会话的函数
+def cleanup_expired_sessions():
+    # 遍历会话目录
+    now = datetime.now()
+    session_files = [f for f in os.listdir(app.config['SESSIONS_FOLDER']) if f.endswith('.pkl')]
+
+    for session_file in session_files:
+        file_path = os.path.join(app.config['SESSIONS_FOLDER'], session_file)
+        # 检查文件修改时间
+        mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
+        # 24小时过期
+        if (now - mtime).total_seconds() > 86400:
+            session_id = session_file[:-4]
+            try:
+                session_data = load_session(session_id)
+                if session_data and 'image_path' in session_data:
+                    if os.path.exists(session_data['image_path']):
+                        os.remove(session_data['image_path'])
+
+                excel_path = os.path.join(app.config['RESULTS_FOLDER'], f'拟合数据_{session_id}.xlsx')
+                if os.path.exists(excel_path):
+                    os.remove(excel_path)
+
+                # 删除会话数据文件
+                os.remove(file_path)
+            except:
+                pass
+
 
 if __name__ == '__main__':
     app.run(debug=True)
